@@ -311,7 +311,7 @@
       });
 
       var label = document.createElement("label");
-      label.htmlFor = value;
+      label.htmlFor = `${type}-${value}`;
       label.appendChild(document.createTextNode(value));
 
       var span = document.createElement("span");
