@@ -34,6 +34,61 @@
     #map {
       flex: 1;
     }
+    .map-overlay {
+      font: 12px/20px "Helvetica Neue", Arial, Helvetica, sans-serif;
+      position: absolute;
+      width: 200px;
+      bottom: 0;
+      left: 0;
+      padding: 10px;
+    }
+
+    .map-overlay .map-overlay-inner {
+      background-color: #fff;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      border-radius: 3px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    .map-overlay-inner fieldset {
+      border: none;
+      padding: 0;
+      margin: 0 0 10px;
+    }
+
+    .map-overlay-inner fieldset:last-child {
+      margin: 0;
+    }
+
+    .map-overlay-inner select {
+      width: 100%;
+    }
+
+    .map-overlay-inner label {
+      /* display: block; */
+      font-weight: bold;
+      margin: 0 0 5px;
+    }
+
+    .map-overlay-inner button {
+      display: inline-block;
+      /* width: 36px; */
+      height: 20px;
+      border: none;
+      cursor: pointer;
+    }
+
+    .map-overlay-inner button:focus {
+      outline: none;
+    }
+
+    .map-overlay-inner button:hover {
+      box-shadow: inset 0 0 0 3px rgba(0, 0, 0, 0.1);
+    }
+    .filter-count {
+      margin-left: 5px;
+    }
     .vehicle {
     }
     .airport {
@@ -72,6 +127,11 @@
     }
   </style>
   <script src="https://unpkg.com/maplibre-gl@2.1.9/dist/maplibre-gl.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"
+    integrity="sha256-qXBd/EfAdjOA2FGrGAG+b3YBn2tn5A6bhz+LSgYD96k="
+    crossorigin="anonymous"
+  ></script>
   <link
     href="https://unpkg.com/maplibre-gl@2.1.9/dist/maplibre-gl.css"
     rel="stylesheet"
@@ -84,9 +144,43 @@
   <body>
     <div class="row-container">
       <div id="map"></div>
+      <div class="map-overlay top">
+        <div class="map-overlay-inner">
+          <fieldset>
+            <label>Car Models</label>
+            <div id="car-models">
+              <!-- <span>Loading...</span> -->
+            </div>
+          </fieldset>
+          <!-- <fieldset>
+            <label>Min Car Number</label>
+            <div id="car-number">
+              <input type="number" id="CarNo" value="" />
+              <span id="CarNo-count" class="filter-count"></span>
+            </div>
+          </fieldset> -->
+          <fieldset>
+            <button id="refresh">Refresh</button>
+          </fieldset>
+        </div>
+      </div>
     </div>
   </body>
   <script>
+    ((app) => {
+      var config = {
+        get: (key) => {
+          return localStorage.getItem(key);
+        },
+        set: (key, value) => {
+          localStorage.setItem(key, value);
+        },
+      };
+
+      window.app = app || {};
+      window.app.config = config;
+    })();
+
     var url =
       "https://www.reservauto.net/WCF/LSI/LSIBookingServiceV3.svc/GetAvailableVehicles?LanguageID=1&BranchID=1";
 
@@ -122,38 +216,127 @@
       // style: "https://demotiles.maplibre.org/style.json", // stylesheet location
       center: [-73.5673, 45.5017], // starting position [lng, lat]
       zoom: 12, // starting zoom
-    });
-
-    map.addControl(new maplibregl.NavigationControl());
+      attributionControl: false,
+    })
+      .addControl(new maplibregl.NavigationControl())
+      .addControl(
+        new maplibregl.GeolocateControl({
+          positionOptions: {
+            enableHighAccuracy: true,
+          },
+          trackUserLocation: true,
+        })
+      );
+    // .addControl(
+    //   new maplibregl.AttributionControl({
+    //     compact: true,
+    //   })
+    // );
 
     function error(err) {
       console.warn(`ERROR(${err.code}): ${err.message}`);
     }
 
-    navigator.geolocation.getCurrentPosition(
-      function success(pos) {
-        const crd = pos.coords;
+    // navigator.geolocation.getCurrentPosition(
+    //   function success(pos) {
+    //     const crd = pos.coords;
 
-        console.log("Your current position is:");
-        console.log(`Latitude : ${crd.latitude}`);
-        console.log(`Longitude: ${crd.longitude}`);
-        console.log(`More or less ${crd.accuracy} meters.`);
+    //     console.log("Your current position is:");
+    //     console.log(`Latitude : ${crd.latitude}`);
+    //     console.log(`Longitude: ${crd.longitude}`);
+    //     console.log(`More or less ${crd.accuracy} meters.`);
 
-        map.setCenter([crd.longitude, crd.latitude]);
-      },
-      error,
-      {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0,
-      }
-    );
+    //     map.setCenter([crd.longitude, crd.latitude]);
+    //   },
+    //   error,
+    //   {
+    //     enableHighAccuracy: true,
+    //     timeout: 5000,
+    //     maximumAge: 0,
+    //   }
+    // );
 
     var vehiclesByVin = {};
+    var vehicles = [];
+    var filters = {
+      CarModel: [],
+      CarBrand: [],
+      CarColor: [],
+    };
+
+    function updateFilterOptions(vehicles) {
+      var models = _.uniq(_.map(vehicles, "CarModel")).sort();
+      var brands = _.uniq(_.map(vehicles, "CarBrand")).sort();
+      var colors = _.uniq(_.map(vehicles, "CarColor")).sort();
+
+      var models = models.forEach((model) => {
+        if (!filters.CarModel.includes(model)) {
+          filters.CarModel.push(model);
+
+          createCheckbox(
+            model,
+            "CarModel",
+            "car-models",
+            applyFilter((x) => x.CarModel === model)
+          );
+        }
+      });
+    }
+
+    function applyFilter(logic) {
+      return ({ name, value, checked }) => {
+        var visibility = checked ? "visible" : "hidden";
+        var affected = vehicles.filter(logic);
+        var vins = affected.map((x) => x.CarVin);
+
+        vins.forEach((vin) => {
+          var vehicle = vehiclesByVin[vin];
+          if (!vehicle) return;
+
+          vehicle._element.style.visibility = visibility;
+        });
+      };
+    }
+
+    function createCheckbox(value, type, container, handler) {
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.id = `${type}-${value}`;
+      checkbox.name = type;
+      checkbox.value = value;
+      checkbox.checked = true;
+
+      checkbox.addEventListener("change", (e) => {
+        handler(e.target);
+      });
+
+      var label = document.createElement("label");
+      label.htmlFor = value;
+      label.appendChild(document.createTextNode(value));
+
+      var span = document.createElement("span");
+      span.id = `${type}-${value}-count`;
+      span.className = "filter-count";
+
+      function setCount() {
+        var count = vehicles.filter((x) => x[type] === value).length;
+        span.innerText = `(${count})`;
+      }
+      setCount();
+      setInterval(setCount, 5000);
+
+      var br = document.createElement("br");
+
+      var container = document.getElementById(container);
+      container.appendChild(checkbox);
+      container.appendChild(label);
+      container.appendChild(span);
+      container.appendChild(br);
+    }
 
     function process(data) {
-      var vehicles = data.d.Vehicles;
-      console.log(vehicles);
+      vehicles = data.d.Vehicles;
+      updateFilterOptions(vehicles);
 
       vehicles.forEach((vehicle) => {
         var id = vehicle.CarVin;
@@ -181,6 +364,18 @@
 
           vehiclesByVin[id] = marker;
         }
+
+        // create the popup
+        var popup = new maplibregl.Popup({
+          offset: 25,
+          closeButton: false,
+        }).setHTML(
+          `<div>
+            ${vehicle.CarNo} ${vehicle.CarBrand} ${vehicle.CarModel}
+          </div>`
+        );
+
+        marker.setPopup(popup); // sets a popup on this marker
       });
 
       Object.keys(vehiclesByVin).forEach((vin) => {
@@ -193,14 +388,20 @@
       });
     }
 
+    function isMarkerVisible(vehicle) {
+      var activeModels = filters.models;
+    }
+
     function loadData() {
       getJSONP(url, "process");
 
       setInterval(function () {
         getJSONP(url, "process");
-      }, 5000);
+      }, 30000);
     }
 
     loadData();
+
+    document.getElementById("refresh").addEventListener("click", loadData);
   </script>
 </html>
