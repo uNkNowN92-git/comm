@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Communauto</title>
+  </head>
+  <style>
+    body,
+    html {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .row-container {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      flex-direction: column;
+      /* background-color: blue; */
+      overflow: hidden;
+    }
+    .first-row {
+      /* background-color: lime; */
+    }
+    .second-row {
+      flex-grow: 1;
+      border: none;
+      margin: 0;
+      padding: 0;
+    }
+    #map {
+      flex: 1;
+    }
+    .vehicle {
+    }
+    .airport {
+      background-image: url(https://api.geoapify.com/v1/icon/?type=awesome&scaleFactor=2&color=%2372a2d4&size=x-large&icon=plane-departure&apiKey=6568556705b6475688a4256f5d06efcb);
+      background-size: contain;
+      cursor: pointer;
+    }
+    .regular {
+      background-image: url(https://www.reservauto.net/images/GoogleMaps/pin-am.png);
+      background-size: contain;
+      cursor: pointer;
+      height: 27px;
+      width: 20px;
+    }
+    .regular-promo {
+      background-image: url(https://www.reservauto.net/images/GoogleMaps/pin_am_promo.png);
+      background-size: contain;
+      cursor: pointer;
+      height: 36px;
+      width: 35px;
+    }
+    .electric {
+      background-image: url(https://www.reservauto.net/images/GoogleMaps/pin-electric.png);
+      background-size: contain;
+      cursor: pointer;
+      height: 27px;
+      width: 20px;
+    }
+    .niro {
+      border: 1px solid red;
+      background-image: url(https://www.reservauto.net/images/GoogleMaps/pin-electric.png);
+      background-size: contain;
+      cursor: pointer;
+      height: 27px;
+      width: 20px;
+    }
+  </style>
+  <script src="https://unpkg.com/maplibre-gl@2.1.9/dist/maplibre-gl.js"></script>
+  <link
+    href="https://unpkg.com/maplibre-gl@2.1.9/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <!-- <script
+    src="https://code.jquery.com/jquery-3.6.0.min.js"
+    integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="
+    crossorigin="anonymous"
+  ></script> -->
+  <body>
+    <div class="row-container">
+      <div id="map"></div>
+    </div>
+  </body>
+  <script>
+    var url =
+      "https://www.reservauto.net/WCF/LSI/LSIBookingServiceV3.svc/GetAvailableVehicles?LanguageID=1&BranchID=1";
+
+    /*!
+     * Get JSONP data
+     * (c) 2017 Chris Ferdinandi, MIT License, https://gomakethings.com
+     * @param  {String}   url      The JSON URL
+     * @param  {Function} callback The function to run after JSONP data loaded
+     */
+    var getJSONP = function (url, callback) {
+      // Create script with url and callback (if specified)
+      var ref = window.document.getElementsByTagName("script")[0];
+      var script = window.document.createElement("script");
+      script.src =
+        url + (url.indexOf("?") + 1 ? "&" : "?") + "callback=" + callback;
+
+      // Insert script tag into the DOM (append to <head>)
+      ref.parentNode.insertBefore(script, ref);
+
+      // After the script is loaded (and executed), remove it
+      script.onload = function () {
+        this.remove();
+      };
+    };
+
+    // The API Key provided is restricted to JSFiddle website
+    // Get your own API Key on https://myprojects.geoapify.com
+    var myAPIKey = "6568556705b6475688a4256f5d06efcb";
+
+    var map = new maplibregl.Map({
+      container: "map",
+      style: `https://maps.geoapify.com/v1/styles/klokantech-basic/style.json?apiKey=${myAPIKey}`,
+      // style: "https://demotiles.maplibre.org/style.json", // stylesheet location
+      center: [-73.5673, 45.5017], // starting position [lng, lat]
+      zoom: 12, // starting zoom
+    });
+
+    map.addControl(new maplibregl.NavigationControl());
+
+    function error(err) {
+      console.warn(`ERROR(${err.code}): ${err.message}`);
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      function success(pos) {
+        const crd = pos.coords;
+
+        console.log("Your current position is:");
+        console.log(`Latitude : ${crd.latitude}`);
+        console.log(`Longitude: ${crd.longitude}`);
+        console.log(`More or less ${crd.accuracy} meters.`);
+
+        map.setCenter([crd.longitude, crd.latitude]);
+      },
+      error,
+      {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0,
+      }
+    );
+
+    var vehiclesByVin = {};
+
+    function process(data) {
+      var vehicles = data.d.Vehicles;
+      console.log(vehicles);
+
+      vehicles.forEach((vehicle) => {
+        var id = vehicle.CarVin;
+        var className = vehicle.CarModel.match(new RegExp(/niro/i))
+          ? "niro"
+          : vehicle.IsElectric
+          ? "electric"
+          : vehicle.isPromo
+          ? "regular-promo"
+          : "regular";
+        var icon = document.createElement("div");
+        icon.classList.add(className);
+
+        var marker = vehiclesByVin[id];
+
+        if (marker) {
+          marker.setLngLat([vehicle.Longitude, vehicle.Latitude]);
+        } else {
+          marker = new maplibregl.Marker(icon, {
+            anchor: "bottom",
+            offset: [0, 6],
+          })
+            .setLngLat([vehicle.Longitude, vehicle.Latitude])
+            .addTo(map);
+
+          vehiclesByVin[id] = marker;
+        }
+      });
+
+      Object.keys(vehiclesByVin).forEach((vin) => {
+        if (vehicles.some((x) => x.CarVin === vin)) return;
+
+        console.log(`Vehicle is now unavailable: ${vin}`);
+        vehiclesByVin[vin].remove();
+
+        delete vehiclesByVin[vin];
+      });
+    }
+
+    function loadData() {
+      getJSONP(url, "process");
+
+      setInterval(function () {
+        getJSONP(url, "process");
+      }, 5000);
+    }
+
+    loadData();
+  </script>
+</html>
